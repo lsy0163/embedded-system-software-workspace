@@ -169,7 +169,7 @@ void handle_nvme_io_cmd(NVME_COMMAND *nvmeCmd)
 			xil_printf("Affiliation: Sogang University Computer Science and Engineering\r\n");
 			xil_printf("Interests: Embedded Systems and Operating Systems\r\n");
 			xil_printf("Hobbies: Football, Tennis\r\n");
-			xil_printf("Task 3 Completed!!!\r\n");
+			// xil_printf("Task 3 Completed!!!\r\n");
 			nvmeCPL.dword[0] = 0;
 			nvmeCPL.specific = 0x0;
 			set_auto_nvme_cpl(nvmeCmd->cmdSlotTag, nvmeCPL.specific, nvmeCPL.statusFieldWord);
