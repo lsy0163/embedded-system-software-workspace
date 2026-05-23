@@ -206,7 +206,7 @@
 #define	USER_WAYS				2//8			//user configurable factor
 //************************************************************************
 
-#define	BYTES_PER_DATA_REGION_OF_SLICE		16384		//slice is a mapping unit of FTL
+#define	BYTES_PER_DATA_REGION_OF_SLICE		16384		//slice is a mapping unit of FTL (2^14 -> 16KB)
 #define	BYTES_PER_SPARE_REGION_OF_SLICE		256
 
 #define SLICES_PER_PAGE				(BYTES_PER_DATA_REGION_OF_PAGE / BYTES_PER_DATA_REGION_OF_SLICE)	//a slice directs a page, full page mapping

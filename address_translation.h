@@ -108,6 +108,11 @@
 #define Pcw2VdieTranslation(chNo, wayNo) ((chNo) + (wayNo) * (USER_CHANNELS))
 #define PlsbPage2VpageTranslation(pageNo) ((pageNo) > (0) ? ( ((pageNo) + 1) / 2): (0))
 
+// PRJ2 BEGIN: Block-level FTL mapping metadata
+#define Addr2Block(logicalSliceAddr) ((logicalSliceAddr) / (SLICES_PER_BLOCK))	// logicalSliceAddr / 256
+#define LOGICAL_BLOCKS_PER_SSD ((SLICES_PER_SSD) / (SLICES_PER_BLOCK))			// 16384
+// PRJ2 END
+
 //for logical to virtual translation
 typedef struct _LOGICAL_SLICE_ENTRY {
 	unsigned int virtualSliceAddr;
@@ -183,6 +188,16 @@ typedef struct _PHY_BLOCK_MAP {
 	PHY_BLOCK_ENTRY phyBlock[USER_DIES][TOTAL_BLOCKS_PER_DIE];
 } PHY_BLOCK_MAP, *P_PHY_BLOCK_MAP;
 
+// PRJ2 BEGIN: Block-level mapping table
+typedef struct _LOGICAL_BLOCK_ENTRY {
+	unsigned int baseVirtualSliceAddr;
+	unsigned int nextOffset;
+} LOGICAL_BLOCK_ENTRY, *P_LOGICAL_BLOCK_ENTRY;
+
+typedef struct _LOGICAL_BLOCK_MAP {
+	LOGICAL_BLOCK_ENTRY logicalBlock[LOGICAL_BLOCKS_PER_SSD];
+} LOGICAL_BLOCK_MAP, *P_LOGICAL_BLOCK_MAP;
+// PRJ2 END
 
 void InitAddressMap();
 void InitSliceMap();
@@ -191,6 +206,9 @@ void InitBlockDieMap();
 unsigned int AddrTransRead(unsigned int logicalSliceAddr);
 unsigned int AddrTransWrite(unsigned int logicalSliceAddr);
 unsigned int FindFreeVirtualSlice();
+// PRJ2 BEGIN: Find a free virtual block for block-level mapping.
+unsigned int FindFreeVirtualBlock();
+// PRJ2 END
 unsigned int FindFreeVirtualSliceForGc(unsigned int copyTargetDieNo, unsigned int victimBlockNo);
 unsigned int FindDieForFreeSliceAllocation();
 
@@ -210,6 +228,7 @@ extern P_VIRTUAL_BLOCK_MAP virtualBlockMapPtr;
 extern P_VIRTUAL_DIE_MAP virtualDieMapPtr;
 extern P_PHY_BLOCK_MAP phyBlockMapPtr;
 extern P_BAD_BLOCK_TABLE_INFO_MAP bbtInfoMapPtr;
+extern P_LOGICAL_BLOCK_MAP logicalBlockMapPtr;	// PRJ2: Logical block mapping table pointer
 
 extern unsigned char sliceAllocationTargetDie;
 extern unsigned int mbPerbadBlockSpace;
