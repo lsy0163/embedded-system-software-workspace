@@ -707,44 +707,35 @@ static inline unsigned int GetCurrentVirtualSliceOfVirtualBlock(unsigned int lbn
 	return vsa;
 }
 
-// TODO
-unsigned int AddrTransRead(unsigned int logicalSliceAddr)
-{
-	unsigned int virtualSliceAddr;
-
-	if(logicalSliceAddr < SLICES_PER_SSD)
-	{
-		virtualSliceAddr = logicalSliceMapPtr->logicalSlice[logicalSliceAddr].virtualSliceAddr;
-
-		if(virtualSliceAddr != VSA_NONE)
-			return virtualSliceAddr;
-		else
-			return VSA_FAIL;
+// Return a virtual slice address for block-level mapping
+unsigned int AddrTransRead(unsigned int logicalSliceAddr) {
+	unsigned int lbn = Addr2Block(logicalSliceAddr);
+	if (logicalSliceAddr < SLICES_PER_SSD) {
+		return (logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr != VSA_NONE) ? logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr : VSA_FAIL; 
 	}
-	else
+	else {
 		assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");
+	}
 }
 
-// TODO
-unsigned int AddrTransWrite(unsigned int logicalSliceAddr)
-{
-	unsigned int virtualSliceAddr;
-
-	if(logicalSliceAddr < SLICES_PER_SSD)
-	{
-		InvalidateOldVsa(logicalSliceAddr);
-
-		virtualSliceAddr = FindFreeVirtualSlice();
-
-		logicalSliceMapPtr->logicalSlice[logicalSliceAddr].virtualSliceAddr = virtualSliceAddr;
-		virtualSliceMapPtr->virtualSlice[virtualSliceAddr].logicalSliceAddr = logicalSliceAddr;
-
-		return virtualSliceAddr;
+// Return a virtual slice address for block-level mapping. If ther is no virtual block mapped to the given logical block number, find a free virtual block and map it to the logical block number, and then return a virtual slice address of the found virtual block. 
+// If there is already a virtual block mapped to the given logical block number, return a virtual slice address of the mapped virtual block.
+unsigned int AddrTransWrite(unsigned int logicalSliceAddr) {
+	unsigned int lbn = Addr2Block(logicalSliceAddr);
+	if (logicalSliceAddr < SLICES_PER_SSD) {
+		if (logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr == VSA_NONE)	// if ther is no virtual block mapped to the given logical block number
+			logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr = FindFreeVirtualBlock();
+		// for Mapping Table Summary
+		InvalidateOldVsa(lbn);
+		logicalSliceMapPtr->logicalSlice[lbn].virtualSliceAddr = logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr;
+		virtualSliceMapPtr->virtualSlice[logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr].logicalSliceAddr = lbn;
+		
+		return GetCurrentVirtualSliceOfVirtualBlock(lbn);
 	}
-	else
+	else {
 		assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");
+	}
 }
-
 
 // Return a virtual block base address for block-level mapping
 unsigned int FindFreeVirtualBlock() {
