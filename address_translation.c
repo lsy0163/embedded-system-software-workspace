@@ -63,13 +63,12 @@ unsigned char sliceAllocationTargetDie;
 unsigned int mbPerbadBlockSpace;
 
 // PRJ2 BEGIN: Block-level mapping macros and helper functions
-// LOGICAL_BLOCKS_PER_SSD = 16384
-#define CURRENT_PAGE_LOCK_MASK		0x8000		// 1000 0000 0000 0000
-#define CURRENT_PAGE_VALUE_MASK 	0x7FFF		// 0111 1111 1111 1111
+#define CURRENT_PAGE_LOCK_MASK		0x8000		// bit 15: block-level mapping lock
+#define CURRENT_PAGE_VALUE_MASK 	0x7FFF		// bits 0..14: programmed page count
 
-// currentPage에서 msb 를 block-level lock flag 로 활용
-// currentPage에서 lower 15bits = page count of the block
-// USER_PAGES_PER_BLOCK = 256(0x0100) -> enough with lower 15 bits (actually enough with 9 bits)
+// Reuse currentPage's MSB as a lock flag for block-level mapping.
+// The lower 15 bits keep the programmed page count. USER_PAGES_PER_BLOCK is
+// 256, so the counter has enough capacity while preserving the lock bit.
 
 /*                    [ currentPage structure ]
 ------------------------------------------------------------------------
@@ -77,39 +76,46 @@ unsigned int mbPerbadBlockSpace;
 ------------------------------------------------------------------------
 */
 
-// Get current programmed page count of the block, excluding the lock flag
-static inline unsigned int GetBlockCurrentPage(unsigned int dieNo, unsigned int blockNo) {
+// Return the block's programmed page count without the block-level lock flag.
+static inline unsigned int GetBlockCurrentPage(unsigned int dieNo, unsigned int blockNo)
+{
 	return (virtualBlockMapPtr->block[dieNo][blockNo].currentPage & CURRENT_PAGE_VALUE_MASK);
 }
 
-// Set current programmed page count of the block, preserving the lock flag
-static inline void SetBlockCurrentPageCount(unsigned int dieNo, unsigned int blockNo, unsigned int pageCnt) {
+// Update the programmed page count while preserving the block-level lock flag.
+static inline void SetBlockCurrentPageCount(unsigned int dieNo, unsigned int blockNo, unsigned int pageCnt)
+{
 	unsigned int lock = virtualBlockMapPtr->block[dieNo][blockNo].currentPage & CURRENT_PAGE_LOCK_MASK;
 	virtualBlockMapPtr->block[dieNo][blockNo].currentPage = lock | (pageCnt & CURRENT_PAGE_VALUE_MASK);
 }
 
-// Initialize currentPage of the block to 0, unlock the block as well
-static inline void ResetBlockCurrentPage(unsigned int dieNo, unsigned int blockNo) {
+// Clear both the programmed page count and the block-level lock flag.
+static inline void ResetBlockCurrentPage(unsigned int dieNo, unsigned int blockNo)
+{
 	virtualBlockMapPtr->block[dieNo][blockNo].currentPage = 0;
 }
 
-// Check if the block is locked for block-level mapping by checking the msb of currentPage
-static inline unsigned int IsBlockLockedForBlockMapping(unsigned int dieNo, unsigned int blockNo) {
+// Check whether this block is reserved by block-level mapping.
+static inline unsigned int IsBlockLockedForBlockMapping(unsigned int dieNo, unsigned int blockNo)
+{
 	return (virtualBlockMapPtr->block[dieNo][blockNo].currentPage & CURRENT_PAGE_LOCK_MASK);
 }
 
-// Lock the block for block-level mapping
-static inline void LockBlockForBlockMapping(unsigned int dieNo, unsigned int blockNo) {
+// Reserve this block so page-level allocation cannot consume it.
+static inline void LockBlockForBlockMapping(unsigned int dieNo, unsigned int blockNo)
+{
 	virtualBlockMapPtr->block[dieNo][blockNo].currentPage |= CURRENT_PAGE_LOCK_MASK;
 }
 
-// Unlock the block
-static inline void UnlockBlockFromBlockMapping(unsigned int dieNo, unsigned int blockNo) {
+// Release the block-level reservation while preserving its page count.
+static inline void UnlockBlockFromBlockMapping(unsigned int dieNo, unsigned int blockNo)
+{
 	virtualBlockMapPtr->block[dieNo][blockNo].currentPage &= CURRENT_PAGE_VALUE_MASK;
 }
 
-// Check if the block is available for block-level mapping
-static inline unsigned int IsBlockAvailableForBlockMapping(unsigned int dieNo, unsigned int blockNo) {
+// Block-level mapping can take only an unlocked, never-programmed block.
+static inline unsigned int IsBlockAvailableForBlockMapping(unsigned int dieNo, unsigned int blockNo)
+{
 	return ((GetBlockCurrentPage(dieNo, blockNo) == 0) && !IsBlockLockedForBlockMapping(dieNo, blockNo));
 }
 // PRJ2 END
@@ -125,7 +131,7 @@ void InitAddressMap()
 	virtualDieMapPtr = (P_VIRTUAL_DIE_MAP) VIRTUAL_DIE_MAP_ADDR;
 	phyBlockMapPtr = (P_PHY_BLOCK_MAP) PHY_BLOCK_MAP_ADDR;
 	bbtInfoMapPtr = (P_BAD_BLOCK_TABLE_INFO_MAP) BAD_BLOCK_TABLE_INFO_MAP_ADDR;
-	// PRJ2: Initialize logical block mapping table pointer
+	// PRJ2: logical block mapping table is stored in reserved DRAM space.
 	logicalBlockMapPtr = (P_LOGICAL_BLOCK_MAP) RESERVED1_START_ADDR;
 
 	//init phyblockMap
@@ -153,7 +159,7 @@ void InitSliceMap()
 		virtualSliceMapPtr->virtualSlice[sliceAddr].logicalSliceAddr = LSA_NONE;
 	}
 
-	// PRJ2: Initialize logical block mapping table
+	// PRJ2: no logical block owns a virtual block at startup.
 	for (sliceAddr = 0; sliceAddr < LOGICAL_BLOCKS_PER_SSD; ++sliceAddr) {
 		logicalBlockMapPtr->logicalBlock[sliceAddr].baseVirtualSliceAddr = VSA_NONE;
 		logicalBlockMapPtr->logicalBlock[sliceAddr].nextOffset = 0;
@@ -293,7 +299,6 @@ void InitBlockMap()
 
 			virtualBlockMapPtr->block[dieNo][virtualBlockNo].free = 1;
 			virtualBlockMapPtr->block[dieNo][virtualBlockNo].invalidSliceCnt = 0;
-			// PRJ2: Initialize currentPage of the block to 0
 			ResetBlockCurrentPage(dieNo, virtualBlockNo);
 			virtualBlockMapPtr->block[dieNo][virtualBlockNo].eraseCnt = 0;
 
@@ -688,57 +693,70 @@ void InitBlockDieMap()
 	InitCurrentBlockOfDieMap();
 }
 
-// PRJ2 BEGIN:
+// PRJ2 BEGIN: block-level address translation
 
-// Return a virtual slice address
-static inline unsigned int GetCurrentVirtualSliceOfVirtualBlock(unsigned int lbn) {
-	unsigned int baseVsa = logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr;
+// Consume the next slice from the virtual block assigned to this logical block.
+static inline unsigned int ConsumeNextVirtualSliceOfLogicalBlock(unsigned int lbn)
+{
+	P_LOGICAL_BLOCK_ENTRY logicalBlockEntry = &logicalBlockMapPtr->logicalBlock[lbn];
+	unsigned int baseVsa = logicalBlockEntry->baseVirtualSliceAddr;
 	unsigned int die = Vsa2VdieTranslation(baseVsa);
 	unsigned int block = Vsa2VblockTranslation(baseVsa);
-	unsigned int vsa = Vorg2VsaTranslation(die, block, logicalBlockMapPtr->logicalBlock[lbn].nextOffset++);
-	SetBlockCurrentPageCount(die, block, logicalBlockMapPtr->logicalBlock[lbn].nextOffset);
+	unsigned int vsa = Vorg2VsaTranslation(die, block, logicalBlockEntry->nextOffset++);
+	SetBlockCurrentPageCount(die, block, logicalBlockEntry->nextOffset);
 
-	if (logicalBlockMapPtr->logicalBlock[lbn].nextOffset == SLICES_PER_BLOCK) {
+	if (logicalBlockEntry->nextOffset == SLICES_PER_BLOCK) {
 		UnlockBlockFromBlockMapping(die, block);
-		logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr = VSA_NONE;
-		logicalBlockMapPtr->logicalBlock[lbn].nextOffset = 0;
+		logicalBlockEntry->baseVirtualSliceAddr = VSA_NONE;
+		logicalBlockEntry->nextOffset = 0;
 	}
 
 	return vsa;
 }
 
-// Return a virtual slice address for block-level mapping
-unsigned int AddrTransRead(unsigned int logicalSliceAddr) {
+// Return the base virtual slice address assigned to this logical block.
+unsigned int AddrTransRead(unsigned int logicalSliceAddr)
+{
 	unsigned int lbn = Addr2Block(logicalSliceAddr);
+	P_LOGICAL_BLOCK_ENTRY logicalBlockEntry;
+
 	if (logicalSliceAddr < SLICES_PER_SSD) {
-		return (logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr != VSA_NONE) ? logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr : VSA_FAIL; 
+		logicalBlockEntry = &logicalBlockMapPtr->logicalBlock[lbn];
+		return (logicalBlockEntry->baseVirtualSliceAddr != VSA_NONE) ? logicalBlockEntry->baseVirtualSliceAddr : VSA_FAIL;
 	}
 	else {
 		assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");
 	}
 }
 
-// Return a virtual slice address for block-level mapping. If ther is no virtual block mapped to the given logical block number, find a free virtual block and map it to the logical block number, and then return a virtual slice address of the found virtual block. 
-// If there is already a virtual block mapped to the given logical block number, return a virtual slice address of the mapped virtual block.
-unsigned int AddrTransWrite(unsigned int logicalSliceAddr) {
+// Return the next virtual slice address in the logical block's mapped virtual block.
+// Allocate a free virtual block first when this logical block has no mapping.
+unsigned int AddrTransWrite(unsigned int logicalSliceAddr)
+{
 	unsigned int lbn = Addr2Block(logicalSliceAddr);
+	P_LOGICAL_BLOCK_ENTRY logicalBlockEntry;
+
 	if (logicalSliceAddr < SLICES_PER_SSD) {
-		if (logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr == VSA_NONE)	// if ther is no virtual block mapped to the given logical block number
-			logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr = FindFreeVirtualBlock();
-		// for Mapping Table Summary
+		logicalBlockEntry = &logicalBlockMapPtr->logicalBlock[lbn];
+
+		if (logicalBlockEntry->baseVirtualSliceAddr == VSA_NONE)
+			logicalBlockEntry->baseVirtualSliceAddr = FindFreeVirtualBlock();
+
+		// Keep legacy slice maps synchronized for mapping table summary paths.
 		InvalidateOldVsa(lbn);
-		logicalSliceMapPtr->logicalSlice[lbn].virtualSliceAddr = logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr;
-		virtualSliceMapPtr->virtualSlice[logicalBlockMapPtr->logicalBlock[lbn].baseVirtualSliceAddr].logicalSliceAddr = lbn;
-		
-		return GetCurrentVirtualSliceOfVirtualBlock(lbn);
+		logicalSliceMapPtr->logicalSlice[lbn].virtualSliceAddr = logicalBlockEntry->baseVirtualSliceAddr;
+		virtualSliceMapPtr->virtualSlice[logicalBlockEntry->baseVirtualSliceAddr].logicalSliceAddr = lbn;
+
+		return ConsumeNextVirtualSliceOfLogicalBlock(lbn);
 	}
 	else {
 		assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");
 	}
 }
 
-// Return a virtual block base address for block-level mapping
-unsigned int FindFreeVirtualBlock() {
+// Find an empty virtual block and return its base virtual slice address.
+unsigned int FindFreeVirtualBlock()
+{
 	unsigned int dieNo, currentBlock;
 
 	dieNo = sliceAllocationTargetDie;
@@ -904,7 +922,6 @@ void EraseBlock(unsigned int dieNo, unsigned int blockNo)
 	virtualBlockMapPtr->block[dieNo][blockNo].free = 1;
 	virtualBlockMapPtr->block[dieNo][blockNo].eraseCnt++;
 	virtualBlockMapPtr->block[dieNo][blockNo].invalidSliceCnt = 0;
-	// virtualBlockMapPtr->block[dieNo][blockNo].currentPage = 0;
 	ResetBlockCurrentPage(dieNo, blockNo);
 
 	PutToFbList(dieNo, blockNo);
@@ -1021,4 +1038,3 @@ void UpdateBadBlockTableForGrownBadBlock(unsigned int tempBufAddr)
 	//update bad block tables in flash
 	SaveBadBlockTable(dieState, tempBbtBufAddr, tempBbtBufEntrySize);
 }
-
