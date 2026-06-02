@@ -53,6 +53,7 @@
 #include "nvme/host_lld.h"
 #include "memory_map.h"
 #include "ftl_config.h"
+#include "kv_ftl.h"
 
 P_ROW_ADDR_DEPENDENCY_TABLE rowAddrDependencyTablePtr;
 
@@ -574,7 +575,7 @@ void ReleaseBlockedByRowAddrDepReq(unsigned int chNo, unsigned int wayNo)
 
 void IssueNvmeDmaReq(unsigned int reqSlotTag)
 {
-	unsigned int devAddr, dmaIndex, numOfNvmeBlock;
+	unsigned int devAddr, dmaIndex, numOfNvmeBlock, autoCompletion;
 
 	dmaIndex = reqPoolPtr->reqPool[reqSlotTag].nvmeDmaInfo.startIndex;
 	devAddr = GenerateDataBufAddr(reqSlotTag);
@@ -595,9 +596,13 @@ void IssueNvmeDmaReq(unsigned int reqSlotTag)
 	}
 	else if(reqPoolPtr->reqPool[reqSlotTag].reqCode == REQ_CODE_TxDMA)
 	{
+		autoCompletion = NVME_COMMAND_AUTO_COMPLETION_ON;
+		if(KvHasPendingGetCompletion(reqPoolPtr->reqPool[reqSlotTag].nvmeCmdSlotTag))
+			autoCompletion = NVME_COMMAND_AUTO_COMPLETION_OFF;
+
 		while(numOfNvmeBlock < reqPoolPtr->reqPool[reqSlotTag].nvmeDmaInfo.numOfNvmeBlock)
 		{
-			set_auto_tx_dma(reqPoolPtr->reqPool[reqSlotTag].nvmeCmdSlotTag, dmaIndex, devAddr, NVME_COMMAND_AUTO_COMPLETION_ON);
+			set_auto_tx_dma(reqPoolPtr->reqPool[reqSlotTag].nvmeCmdSlotTag, dmaIndex, devAddr, autoCompletion);
 
 			numOfNvmeBlock++;
 			dmaIndex++;
@@ -614,6 +619,7 @@ void CheckDoneNvmeDmaReq()
 {
 	unsigned int reqSlotTag, prevReq;
 	unsigned int rxDone, txDone;
+	unsigned int valueLength;
 
 	reqSlotTag = nvmeDmaReqQ.tailReq;
 	rxDone = 0;
@@ -637,12 +643,15 @@ void CheckDoneNvmeDmaReq()
 				txDone = check_auto_tx_dma_partial_done(reqPoolPtr->reqPool[reqSlotTag].nvmeDmaInfo.reqTail , reqPoolPtr->reqPool[reqSlotTag].nvmeDmaInfo.overFlowCnt);
 
 			if(txDone)
+			{
+				if(KvConsumePendingGetCompletion(reqPoolPtr->reqPool[reqSlotTag].nvmeCmdSlotTag, &valueLength))
+					set_auto_nvme_cpl(reqPoolPtr->reqPool[reqSlotTag].nvmeCmdSlotTag, valueLength, 0);
+
 				SelectiveGetFromNvmeDmaReqQ(reqSlotTag);
+			}
 		}
 
 		reqSlotTag = prevReq;
 	}
 }
-
-
 

@@ -59,7 +59,21 @@
 #include "nvme_io_cmd.h"
 
 #include "../ftl_config.h"
+#include "../kv_ftl.h"
 #include "../request_transform.h"
+
+static void complete_nvme_io_cmd(unsigned int cmdSlotTag, unsigned int specific, unsigned char sc, unsigned char sct)
+{
+	NVME_COMPLETION nvmeCPL;
+
+	nvmeCPL.dword[0] = 0;
+	nvmeCPL.specific = specific;
+	nvmeCPL.statusField.SC = sc;
+	nvmeCPL.statusField.SCT = sct;
+	nvmeCPL.statusField.DNR = 0;
+
+	set_auto_nvme_cpl(cmdSlotTag, nvmeCPL.specific, nvmeCPL.statusFieldWord);
+}
 
 void handle_nvme_io_read(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
 {
@@ -116,6 +130,54 @@ void handle_nvme_io_write(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
 	ReqTransNvmeToSlice(cmdSlotTag, startLba[0] + (storageCapacity_L / USER_CHANNELS) * (nsid - 1), nlb, IO_NVM_WRITE);
 }
 
+void handle_nvme_io_kv_put(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
+{
+	unsigned int key;
+	unsigned int valueLength;
+	unsigned int status;
+
+	key = nvmeIOCmd->dword10;
+	valueLength = nvmeIOCmd->dword13;
+
+	if((nvmeIOCmd->PRP1[0] & 0xF) != 0 || (nvmeIOCmd->PRP2[0] & 0xF) != 0)
+	{
+		complete_nvme_io_cmd(cmdSlotTag, 0, SC_PRP_OFFSET_INVALID, SCT_GENERIC_COMMAND_STATUS);
+		return;
+	}
+
+	if(valueLength != KV_VALUE_SIZE)
+	{
+		complete_nvme_io_cmd(cmdSlotTag, 0, SC_INVALID_FIELD_IN_COMMAND, SCT_GENERIC_COMMAND_STATUS);
+		return;
+	}
+
+	status = KvPut(cmdSlotTag, key, valueLength);
+	if(status != KV_STATUS_OK)
+		complete_nvme_io_cmd(cmdSlotTag, 0, SC_INTERNAL_DEVICE_ERROR, SCT_GENERIC_COMMAND_STATUS);
+}
+
+void handle_nvme_io_kv_get(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
+{
+	unsigned int key;
+	unsigned int hostBufferLength;
+	unsigned int status;
+
+	key = nvmeIOCmd->dword10;
+	hostBufferLength = nvmeIOCmd->dword13;
+
+	if((nvmeIOCmd->PRP1[0] & 0x3) != 0 || (nvmeIOCmd->PRP2[0] & 0x3) != 0)
+	{
+		complete_nvme_io_cmd(cmdSlotTag, 0, SC_PRP_OFFSET_INVALID, SCT_GENERIC_COMMAND_STATUS);
+		return;
+	}
+
+	status = KvGet(cmdSlotTag, key, hostBufferLength);
+	if(status == KV_STATUS_NO_SUCH_KEY)
+		complete_nvme_io_cmd(cmdSlotTag, 0, SC_KV_NO_SUCH_KEY, SCT_VENDOR_SPECIFIC);
+	else if(status != KV_STATUS_OK)
+		complete_nvme_io_cmd(cmdSlotTag, 0, SC_INTERNAL_DEVICE_ERROR, SCT_GENERIC_COMMAND_STATUS);
+}
+
 void handle_nvme_io_cmd(NVME_COMMAND *nvmeCmd)
 {
 	NVME_IO_COMMAND *nvmeIOCmd;
@@ -154,6 +216,18 @@ void handle_nvme_io_cmd(NVME_COMMAND *nvmeCmd)
 			handle_nvme_io_read(nvmeCmd->cmdSlotTag, nvmeIOCmd);
 			break;
 		}
+		case IO_NVM_KV_PUT:
+		{
+//			xil_printf("IO KV Put Command\r\n");
+			handle_nvme_io_kv_put(nvmeCmd->cmdSlotTag, nvmeIOCmd);
+			break;
+		}
+		case IO_NVM_KV_GET:
+		{
+//			xil_printf("IO KV Get Command\r\n");
+			handle_nvme_io_kv_get(nvmeCmd->cmdSlotTag, nvmeIOCmd);
+			break;
+		}
 		// for prj1 task3
 		case IO_NVM_HELLO:
 		{
@@ -183,4 +257,3 @@ void handle_nvme_io_cmd(NVME_COMMAND *nvmeCmd)
 		}
 	}
 }
-

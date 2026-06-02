@@ -88,6 +88,10 @@
 #define IO_NVM_DATASET_MANAGEMENT							0x09
 #define IO_NVM_HELLO										0x0A
 
+/* Opcodes for KV-SSD commands */
+#define IO_NVM_KV_PUT 										0xA0
+#define IO_NVM_KV_GET 										0xA1
+
 /*Status Code Type */
 #define SCT_GENERIC_COMMAND_STATUS							0
 #define SCT_COMMAND_SPECIFIC_STATUS							1
@@ -162,6 +166,9 @@
 #define SC_CONFLICTING_ATTRIBUTES							0x80//Dataset Management, Read, Write
 #define SC_INVALID_PROTECTION_INFORMATION					0x81//Compare, Read, Write, Write Zeroes
 #define SC_ATTEMPTED_WRITE_TO_READ_ONLY_RANGE				0x82//Dataset Management, Write, Write Uncorrectable, Write Zeroes
+
+/* Status Code - Vendor Specific Values */
+#define SC_KV_NO_SUCH_KEY									0xC1
 
 /*Status Code - Media and Data Integrity Error Values, NVM Command Set */
 #define SC_WRITE_FAULT										0x80
