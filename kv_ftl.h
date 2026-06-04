@@ -3,7 +3,9 @@
 
 #include "ftl_config.h"
 
-#define KV_MAX_KEYS                    (4194304)
+#define KV_MAX_STORED_KEYS             (4194304)
+#define KV_HASH_TABLE_SIZE             (8388608)
+#define KV_HASH_TABLE_MASK             (KV_HASH_TABLE_SIZE - 1)
 #define KV_VALUE_SIZE                  (BYTES_PER_NVME_BLOCK)	// 4KB
 #define KV_MAX_CMD_SLOTS               (1024)
 
@@ -12,12 +14,13 @@
 #define KV_STATUS_ERROR                (2)
 
 typedef struct _KV_INDEX_ENTRY {
+	unsigned int key;
 	unsigned int valueLba;		// LBA of the value in the storage
 	unsigned int valueLength;
 } KV_INDEX_ENTRY, *P_KV_INDEX_ENTRY;
 
 typedef struct _KV_INDEX_TABLE {
-	KV_INDEX_ENTRY entry[KV_MAX_KEYS];
+	KV_INDEX_ENTRY entry[KV_HASH_TABLE_SIZE];
 } KV_INDEX_TABLE, *P_KV_INDEX_TABLE;
 
 void InitKvFtl();

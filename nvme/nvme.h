@@ -88,7 +88,7 @@
 #define IO_NVM_DATASET_MANAGEMENT							0x09
 #define IO_NVM_HELLO										0x0A
 
-/* Opcodes for KV-SSD commands */
+/* Opcodes for KV-SSD Commands (Put, Get) */
 #define IO_NVM_KV_PUT 										0xA0
 #define IO_NVM_KV_GET 										0xA1
 
