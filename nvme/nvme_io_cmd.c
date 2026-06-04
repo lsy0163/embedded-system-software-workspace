@@ -62,6 +62,7 @@
 #include "../kv_ftl.h"
 #include "../request_transform.h"
 
+/* Send an immediate completion for KV commands that finish before issuing NAND/DMA requests */
 static void complete_nvme_io_cmd(unsigned int cmdSlotTag, unsigned int specific, unsigned char sc, unsigned char sct)
 {
 	NVME_COMPLETION nvmeCPL;
@@ -130,6 +131,7 @@ void handle_nvme_io_write(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
 	ReqTransNvmeToSlice(cmdSlotTag, startLba[0] + (storageCapacity_L / USER_CHANNELS) * (nsid - 1), nlb, IO_NVM_WRITE);
 }
 
+/* Handle KV Put command */
 void handle_nvme_io_kv_put(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
 {
 	unsigned int key;
@@ -156,6 +158,7 @@ void handle_nvme_io_kv_put(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
 		complete_nvme_io_cmd(cmdSlotTag, 0, SC_INTERNAL_DEVICE_ERROR, SCT_GENERIC_COMMAND_STATUS);
 }
 
+/* Handle KV Get command */
 void handle_nvme_io_kv_get(unsigned int cmdSlotTag, NVME_IO_COMMAND *nvmeIOCmd)
 {
 	unsigned int key;
