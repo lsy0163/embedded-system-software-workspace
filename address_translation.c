@@ -718,15 +718,33 @@ static inline unsigned int ConsumeNextVirtualSliceOfLogicalBlock(unsigned int lb
 unsigned int AddrTransRead(unsigned int logicalSliceAddr)
 {
 	unsigned int lbn = Addr2Block(logicalSliceAddr);
-	P_LOGICAL_BLOCK_ENTRY logicalBlockEntry;
+	unsigned int offset = logicalSliceAddr % SLICES_PER_BLOCK;
+	unsigned int baseVsa, dieNo, blockNo;
 
+	/* prj2 for seq test*/
 	if (logicalSliceAddr < SLICES_PER_SSD) {
-		logicalBlockEntry = &logicalBlockMapPtr->logicalBlock[lbn];
-		return (logicalBlockEntry->baseVirtualSliceAddr != VSA_NONE) ? logicalBlockEntry->baseVirtualSliceAddr : VSA_FAIL;
+		baseVsa = logicalSliceMapPtr->logicalSlice[lbn].virtualSliceAddr;
+
+		if (baseVsa == VSA_NONE)
+			return VSA_FAIL;
+		
+		dieNo = Vsa2VdieTranslation(baseVsa);
+		blockNo = Vsa2VblockTranslation(baseVsa);
+
+		return Vorg2VsaTranslation(dieNo, blockNo, offset);
+	} else {
+		assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");		
 	}
-	else {
-		assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");
-	}
+
+	// /* prj2 */
+	// P_LOGICAL_BLOCK_ENTRY logicalBlockEntry;
+	// if (logicalSliceAddr < SLICES_PER_SSD) {
+	// 	logicalBlockEntry = &logicalBlockMapPtr->logicalBlock[lbn];
+	// 	return (logicalBlockEntry->baseVirtualSliceAddr != VSA_NONE) ? logicalBlockEntry->baseVirtualSliceAddr : VSA_FAIL;
+	// }
+	// else {
+	// 	assert(!"[WARNING] Logical address is larger than maximum logical address served by SSD [WARNING]");
+	// }
 }
 
 // Return the next virtual slice address in the logical block's mapped virtual block.
