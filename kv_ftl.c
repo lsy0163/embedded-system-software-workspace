@@ -77,25 +77,27 @@ unsigned int KvPut(unsigned int cmdSlotTag, unsigned int key, unsigned int value
 	if (valueLength > KV_VALUE_SIZE)
 		return KV_STATUS_ERROR;
 
-	if (kvNextValueLba >= storageCapacity_L)
-		return KV_STATUS_ERROR;
-
 	status = KvFindSlot(key, &slot, &found);
 	if (status != KV_STATUS_OK)
 		return KV_STATUS_ERROR;
-	
-	if (!found && kvStoredKeyCount >= KV_MAX_STORED_KEYS)
-		return KV_STATUS_ERROR;
 
-	valueLba = kvNextValueLba;
-	kvNextValueLba++;
+	if (found) {
+		valueLba = kvIndexTablePtr->entry[slot].valueLba;
+	} else {
+		if (kvNextValueLba >= storageCapacity_L)
+			return KV_STATUS_ERROR;
+
+		if (kvStoredKeyCount >= KV_MAX_STORED_KEYS)
+			return KV_STATUS_ERROR;
+
+		valueLba = kvNextValueLba;
+		kvNextValueLba++;
+		kvStoredKeyCount++;
+	}
 
 	kvIndexTablePtr->entry[slot].key = key;
 	kvIndexTablePtr->entry[slot].valueLba = valueLba;
 	kvIndexTablePtr->entry[slot].valueLength = valueLength;
-	
-	if (!found)
-		kvStoredKeyCount++;
 
 	ReqTransNvmeToSlice(cmdSlotTag, valueLba, 0, IO_NVM_WRITE);
 
@@ -150,4 +152,3 @@ unsigned int KvConsumePendingGetCompletion(unsigned int cmdSlotTag, unsigned int
 
 	return 1;
 }
-
